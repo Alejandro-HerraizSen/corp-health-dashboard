@@ -1,0 +1,12 @@
+# Build the Power BI page
+
+1) Open Power BI Desktop
+2) Get Data → Text/CSV → select `outputs/metrics_long.csv`
+3) Visuals to include
+   - Card: Top-ranked ticker and score
+   - Table: Ticker, score, ROE, EBIT margin, Quick ratio, Net debt / EBITDA
+   - Clustered bar: Score by ticker
+   - Matrix heatmap: Tickers vs metrics with conditional formatting
+   - Slicer: Sector or custom groups (optional)
+4) Save as `dashboards/CorporateHealth.pbix`
+5) Export to PDF for quick sharing

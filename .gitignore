@@ -1,0 +1,8 @@
+# .gitignore
+.venv/
+__pycache__/
+*.pyc
+outputs/*.xlsx
+outputs/*.csv
+outputs/*.png
+.streamlit/
