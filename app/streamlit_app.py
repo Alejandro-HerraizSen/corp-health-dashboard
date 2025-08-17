@@ -1,32 +1,33 @@
-
+# app/streamlit_app.py
 from __future__ import annotations
 
+# Ensure imports work on Streamlit Cloud
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT)
-)
+    sys.path.insert(0, str(ROOT))
 
 from io import StringIO
+from typing import List
 
 import pandas as pd
 import streamlit as st
 
-from src.ingest_sec import fetch_company_concepts
+from src.ingest_sec import fetch_bulk
 from src.transform import prepare_financials
 from src.metrics import compute_metrics
 from src.scoring import score_companies, DEFAULT_WEIGHTS
 from src.export import export_report_cards
 from src.viz import plot_peer_heatmap
 
-st.set_page_config(page_title="Alex's Corporate Health Dashboard", layout="wide")
-st.title("Alex's Corporate Health Dashboard")
+st.set_page_config(page_title="Corporate Health Dashboard", layout="wide")
+st.title("Corporate Health Dashboard")
 
 st.markdown(
-    "Upload a CSV with financials or fetch from SEC for US tickers. "
-    "Get an objective health score and peer benchmarking."
+    "Upload a CSV or paste US tickers and the app will fetch the latest annual fundamentals "
+    "from the SEC plus the most recent market price from Yahoo Finance."
 )
 
 with st.sidebar:
@@ -37,7 +38,7 @@ with st.sidebar:
     if mode == "SEC fetch (US tickers)":
         default = "AAPL, MSFT, NVDA, AMZN, GOOGL, META"
         tickers_text = st.text_area("Tickers (comma separated)", default)
-        st.caption("Tip: set env var SEC_USER_AGENT to your email to be polite to the SEC API.")
+        st.caption("Set secret SEC_USER_AGENT to your email on Streamlit Cloud for polite SEC requests.")
 
     uploaded = None
     if mode == "Upload CSV":
@@ -66,22 +67,9 @@ def parse_uploaded(file) -> pd.DataFrame:
     return pd.read_csv(StringIO(content))
 
 
-def fetch_sec_bulk(tickers: list[str]) -> pd.DataFrame:
-    frames = []
-    for t in tickers:
-        try:
-            frames.append(fetch_company_concepts(t))
-        except Exception as e:
-            st.warning(f"Failed {t}: {e}")
-    if not frames:
-        return pd.DataFrame()
-    df = pd.concat(frames, ignore_index=True)
-    # minimal placeholders if not provided by SEC facts
-    if "shares_basic" not in df.columns:
-        df["shares_basic"] = 1.0
-    if "price" not in df.columns:
-        df["price"] = 1.0
-    return df
+@st.cache_data(show_spinner=False, ttl=3600)
+def fetch_sec_cached(_tickers: List[str]) -> pd.DataFrame:
+    return fetch_bulk(_tickers)
 
 
 if go:
@@ -97,11 +85,18 @@ if go:
         if len(tickers) == 0:
             st.error("Provide at least one ticker")
             st.stop()
-        fin = fetch_sec_bulk(tickers)
+        with st.spinner("Fetching SEC fundamentals and latest prices..."):
+            fin = fetch_sec_cached(tickers)
 
     if fin.empty:
         st.error("No financial data found")
         st.stop()
+
+    # Display info about price as-of date if present
+    if "price_asof" in fin.columns:
+        asof_vals = sorted({v for v in fin["price_asof"].dropna().unique().tolist()})
+        if asof_vals:
+            st.caption(f"Price data as of: {', '.join(asof_vals)}")
 
     fin_norm = prepare_financials(fin)
     metrics = compute_metrics(fin_norm)
@@ -123,8 +118,10 @@ if go:
         "ocf_margin",
         "fcf_margin",
         "ev_ebitda",
+        "price",
     ]
-    st.dataframe(scored[display_cols].round(3), use_container_width=True)
+    existing = [c for c in display_cols if c in scored.columns]
+    st.dataframe(scored[existing].round(3), use_container_width=True)
 
     st.subheader("Peer heatmap")
     st.image(plot_peer_heatmap(scored), caption="Relative positioning across key metrics")
