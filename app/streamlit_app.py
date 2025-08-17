@@ -1,7 +1,7 @@
 # app/streamlit_app.py
 from __future__ import annotations
 
-# Ensure imports work on Streamlit Cloud
+# Ensure imports work on Streamlit Cloud (app/ is the working dir)
 import sys
 from pathlib import Path
 
@@ -9,36 +9,85 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+import re
+import time
 from io import StringIO
 from typing import List
 
 import pandas as pd
 import streamlit as st
 
-from src.ingest_sec import fetch_bulk
 from src.transform import prepare_financials
 from src.metrics import compute_metrics
 from src.scoring import score_companies, DEFAULT_WEIGHTS
 from src.export import export_report_cards
 from src.viz import plot_peer_heatmap
 
+
+# ---------------------------
+# Helpers
+# ---------------------------
+def parse_tickers_text(s: str) -> list[str]:
+    """
+    Accepts 'AAPL MSFT' or 'AAPL, MSFT' or line-separated.
+    Returns sorted unique upper-case tickers (A–Z, 0–9, ., -).
+    """
+    if not s:
+        return []
+    parts = re.split(r"[,\s;]+", s.upper())
+    cleaned = []
+    for p in parts:
+        p = re.sub(r"[^A-Z0-9\.\-]", "", p.strip())
+        if p:
+            cleaned.append(p)
+    return sorted(set(cleaned))
+
+
+@st.cache_data(show_spinner=False, ttl=3600)
+def fetch_sec_cached_keyed(key: tuple[str, ...]) -> pd.DataFrame:
+    """
+    Cache by a stable tuple of tickers (and optional nonce).
+    Import inside the function to keep cache key minimal.
+    """
+    from src.ingest_sec import fetch_bulk  # local import for cache stability
+
+    tickers = [k for k in key if not k.startswith("nonce:")]
+    return fetch_bulk(tickers)
+
+
+def load_sample() -> pd.DataFrame:
+    return pd.read_csv("templates/financials_example.csv")
+
+
+def parse_uploaded(file) -> pd.DataFrame:
+    content = file.read().decode("utf-8")
+    return pd.read_csv(StringIO(content))
+
+
+# ---------------------------
+# UI
+# ---------------------------
 st.set_page_config(page_title="Corporate Health Dashboard", layout="wide")
 st.title("Corporate Health Dashboard")
 
 st.markdown(
-    "Upload a CSV or paste US tickers and the app will fetch the latest annual fundamentals "
-    "from the SEC plus the most recent market price from Yahoo Finance."
+    "Paste **US tickers** or upload a CSV. The app fetches the latest annual fundamentals "
+    "from the SEC and a recent market price, then ranks peers on profitability, liquidity, "
+    "leverage, and cash generation."
 )
 
 with st.sidebar:
-    st.header("Data input")
-    mode = st.radio("Input mode", ["Sample CSV", "Upload CSV", "SEC fetch (US tickers)"])
+    st.header("Data source")
+    options = ["SEC fetch (US tickers)", "Sample CSV", "Upload CSV"]
+    mode = st.radio("Choose how to load data", options, index=0)  # SEC fetch is default
 
     tickers_text = ""
+    force_refresh = False
     if mode == "SEC fetch (US tickers)":
         default = "AAPL, MSFT, NVDA, AMZN, GOOGL, META"
-        tickers_text = st.text_area("Tickers (comma separated)", default)
-        st.caption("Set secret SEC_USER_AGENT to your email on Streamlit Cloud for polite SEC requests.")
+        tickers_text = st.text_area("Tickers (comma, space, or newline separated)", default, height=100)
+        st.caption("Tip: You can write `AAPL MSFT NVDA` or one ticker per line.")
+        force_refresh = st.checkbox("Force refresh live data", value=False)
 
     uploaded = None
     if mode == "Upload CSV":
@@ -57,22 +106,11 @@ with st.sidebar:
 
 go = st.button("Run", type="primary")
 
-
-def load_sample() -> pd.DataFrame:
-    return pd.read_csv("templates/financials_example.csv")
-
-
-def parse_uploaded(file) -> pd.DataFrame:
-    content = file.read().decode("utf-8")
-    return pd.read_csv(StringIO(content))
-
-
-@st.cache_data(show_spinner=False, ttl=3600)
-def fetch_sec_cached(_tickers: List[str]) -> pd.DataFrame:
-    return fetch_bulk(_tickers)
-
-
+# ---------------------------
+# Controller
+# ---------------------------
 if go:
+    # Load data
     if mode == "Sample CSV":
         fin = load_sample()
     elif mode == "Upload CSV":
@@ -81,23 +119,29 @@ if go:
             st.stop()
         fin = parse_uploaded(uploaded)
     else:
-        tickers = [t.strip().upper() for t in tickers_text.split(",") if t.strip()]
-        if len(tickers) == 0:
-            st.error("Provide at least one ticker")
+        tickers = parse_tickers_text(tickers_text)
+        if not tickers:
+            st.error("Provide at least one valid ticker")
             st.stop()
+
+        key: tuple[str, ...] = tuple(tickers)
+        if force_refresh:
+            key = key + (f"nonce:{int(time.time())}",)
+
         with st.spinner("Fetching SEC fundamentals and latest prices..."):
-            fin = fetch_sec_cached(tickers)
+            fin = fetch_sec_cached_keyed(key)
 
     if fin.empty:
         st.error("No financial data found")
         st.stop()
 
-    # Display info about price as-of date if present
+    # Optional caption with price as-of dates if present
     if "price_asof" in fin.columns:
         asof_vals = sorted({v for v in fin["price_asof"].dropna().unique().tolist()})
         if asof_vals:
             st.caption(f"Price data as of: {', '.join(asof_vals)}")
 
+    # Transform, score, display
     fin_norm = prepare_financials(fin)
     metrics = compute_metrics(fin_norm)
     weights = {"profitability": p, "liquidity": lq, "leverage": lev, "cash_gen": cg}
