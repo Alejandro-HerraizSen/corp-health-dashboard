@@ -10,10 +10,11 @@ import requests
 import yfinance as yf
 
 SEC_BASE = "https://data.sec.gov/api"
-UA = os.environ.get("SEC_USER_AGENT", "corp-health-dashboard (email@example.com)")
+UA = os.environ.get("SEC_USER_AGENT", "corp-health-dashboard (you@example.com)")
 
 
 def _get_json(url: str, params: Optional[dict] = None) -> dict:
+    """HTTP GET JSON with polite headers and timeouts."""
     resp = requests.get(
         url,
         params=params,
@@ -26,7 +27,10 @@ def _get_json(url: str, params: Optional[dict] = None) -> dict:
 
 @lru_cache(maxsize=1)
 def _ticker_map() -> Dict[str, str]:
-    """Return {TICKER: CIK_str_padded} using SEC's public mapping."""
+    """
+    Build {TICKER: CIK_str_padded} using SEC's public mapping.
+    Cached to avoid repeated downloads.
+    """
     js = _get_json("https://www.sec.gov/files/company_tickers.json")
     out: Dict[str, str] = {}
     for _, row in js.items():
@@ -38,34 +42,40 @@ def _ticker_map() -> Dict[str, str]:
 
 
 def _normalize_ticker_for_yf(t: str) -> str:
-    # yfinance uses "-" for class shares (e.g., BRK-B), while SEC uses "."
+    """
+    yfinance uses '-' for share classes where SEC often uses '.' (e.g., BRK-B vs BRK.B).
+    """
     return t.replace(".", "-").upper().strip()
 
 
 def _normalize_ticker_for_sec(t: str) -> str:
+    """Normalize to SEC style (periods for classes)."""
     return t.replace("-", ".").upper().strip()
 
 
 def _resolve_cik(ticker: str) -> str:
+    """Resolve a ticker to a 10-digit CIK string."""
     t = _normalize_ticker_for_sec(ticker)
-    m = _ticker_map()
-    if t in m:
-        return m[t]
-    # Fallback: some tickers exist with/without class letter
-    if t.endswith(".A") or t.endswith(".B"):
+    mapping = _ticker_map()
+    if t in mapping:
+        return mapping[t]
+    # Fallback: try base symbol if class suffix present
+    if "." in t:
         base = t.split(".")[0]
-        if base in m:
-            return m[base]
+        if base in mapping:
+            return mapping[base]
     raise ValueError(f"SEC CIK not found for ticker '{ticker}'")
 
 
 def _extract_latest_annual_value(facts: dict, gaap: str, units: Iterable[str]) -> Optional[Tuple[int, float]]:
-    """Return (fy, value) for latest annual 10-K value of a concept, preferring given units."""
+    """
+    Return (fy, value) for the latest annual 10-K value of a concept, preferring the provided units.
+    """
     node = facts.get("us-gaap", {}).get(gaap)
     if not node:
         return None
     series = node.get("units", {})
-    rows = []
+    rows: list[Tuple[int, float]] = []
     for u in units:
         for item in series.get(u, []):
             if item.get("form") in {"10-K", "10-K/A"} and item.get("fy"):
@@ -82,7 +92,9 @@ def _extract_latest_annual_value(facts: dict, gaap: str, units: Iterable[str]) -
 
 
 def _extract_latest_instant_shares(facts: dict) -> Optional[Tuple[int, float]]:
-    """Pick best shares concept (instant) for latest year."""
+    """
+    Prefer instant 'shares outstanding' concepts for the latest FY.
+    """
     candidates = [
         ("CommonStockSharesOutstanding", ["shares"]),
         ("EntityCommonStockSharesOutstanding", ["shares"]),
@@ -90,14 +102,15 @@ def _extract_latest_instant_shares(facts: dict) -> Optional[Tuple[int, float]]:
     best: Optional[Tuple[int, float]] = None
     for gaap, units in candidates:
         got = _extract_latest_annual_value(facts, gaap, units)
-        if got:
-            if best is None or got[0] > best[0]:
-                best = got
+        if got and (best is None or got[0] > best[0]):
+            best = got
     return best
 
 
 def _extract_latest_duration_shares(facts: dict) -> Optional[Tuple[int, float]]:
-    """Fallback: duration-based weighted average shares (basic)."""
+    """
+    Fallback to duration-based weighted-average shares if instant not available.
+    """
     candidates = [
         ("WeightedAverageNumberOfSharesOutstandingBasic", ["shares"]),
         ("WeightedAverageNumberOfDilutedSharesOutstanding", ["shares"]),
@@ -105,13 +118,13 @@ def _extract_latest_duration_shares(facts: dict) -> Optional[Tuple[int, float]]:
     best: Optional[Tuple[int, float]] = None
     for gaap, units in candidates:
         got = _extract_latest_annual_value(facts, gaap, units)
-        if got:
-            if best is None or got[0] > best[0]:
-                best = got
+        if got and (best is None or got[0] > best[0]):
+            best = got
     return best
 
 
 def _yf_latest_close(ticker: str) -> Tuple[float, Optional[str]]:
+    """Fetch a recent close price and its as-of date from Yahoo Finance."""
     t = _normalize_ticker_for_yf(ticker)
     try:
         hist = yf.Ticker(t).history(period="5d", auto_adjust=False)
@@ -121,13 +134,15 @@ def _yf_latest_close(ticker: str) -> Tuple[float, Optional[str]]:
             return close, asof
     except Exception:
         pass
-    return 1.0, None  # safe fallback
+    return 1.0, None  # safe fallback if price unavailable
 
 
 def fetch_fundamentals_and_price(ticker: str) -> pd.DataFrame:
     """
-    For a single ticker, return a 1-row DataFrame with latest FY fundamentals,
-    best-effort shares_basic, and a recent price.
+    For a single ticker, return a 1-row DataFrame with:
+      - latest FY fundamentals (revenue, ebit, net_income, etc.)
+      - best-effort shares_basic (instant preferred, else WA shares)
+      - a recent market price (Yahoo Finance) and price_asof date
     """
     cik = _resolve_cik(ticker)
     comp = _get_json(f"{SEC_BASE}/xbrl/companyfacts/CIK{cik}.json")
@@ -162,13 +177,17 @@ def fetch_fundamentals_and_price(ticker: str) -> pd.DataFrame:
             if fy > latest_fy:
                 latest_fy = fy
 
-    # EBITDA if DA present
+    # EBITDA if possible
     if "ebit" in row and "da" in row:
-        row["ebitda"] = float(row["ebit"]) + float(row["da"])
+        try:
+            row["ebitda"] = float(row["ebit"]) + float(row["da"])
+        except Exception:
+            pass
+
     # Shares (instant preferred, else duration WA)
-    shares = _extract_latest_instant_shares(comp)
+    shares = _extract_latest_instant_shares(facts)
     if not shares:
-        shares = _extract_latest_duration_shares(comp)
+        shares = _extract_latest_duration_shares(facts)
     if shares:
         row["shares_basic"] = float(shares[1])
 
@@ -184,22 +203,26 @@ def fetch_fundamentals_and_price(ticker: str) -> pd.DataFrame:
 
 
 def fetch_bulk(tickers: Iterable[str]) -> pd.DataFrame:
+    """
+    Fetch fundamentals + price for a list of tickers.
+    Returns a concatenated DataFrame; includes an 'error' column for failed tickers.
+    """
     frames = []
     seen = set()
     for t in tickers:
-        t = t.strip()
-        if not t or t.upper() in seen:
+        t_clean = _normalize_ticker_for_sec(str(t))
+        if not t_clean or t_clean in seen:
             continue
         try:
-            frames.append(fetch_fundamentals_and_price(t))
-            seen.add(t.upper())
+            frames.append(fetch_fundamentals_and_price(t_clean))
         except Exception as e:
-            # Return a row with at least the ticker and error note
-            frames.append(pd.DataFrame([{"ticker": t.upper(), "error": str(e)}]))
+            frames.append(pd.DataFrame([{"ticker": t_clean, "error": str(e)}]))
+        seen.add(t_clean)
     if not frames:
         return pd.DataFrame()
     df = pd.concat(frames, ignore_index=True)
-    # Ensure required fields even if missing
+
+    # Ensure required columns exist even if missing from SEC/YF
     for c in ["shares_basic", "price"]:
         if c not in df.columns:
             df[c] = 1.0
