@@ -21,8 +21,8 @@ from src.scoring import score_companies, DEFAULT_WEIGHTS
 from src.export import export_report_cards
 from src.viz import plot_peer_heatmap
 
-st.set_page_config(page_title="Corporate Health Dashboard", layout="wide")
-st.title("Corporate Health Dashboard")
+st.set_page_config(page_title="Alex's Corporate Health Dashboard", layout="wide")
+st.title("Alex's Corporate Health Dashboard")
 
 st.markdown(
     "Upload a CSV with financials or fetch from SEC for US tickers. "
