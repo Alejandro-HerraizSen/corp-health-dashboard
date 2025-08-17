@@ -14,7 +14,8 @@ pip install -r requirements.txt
 streamlit run app/streamlit_app.py
 
 ```
-## Two imput modes
+
+## Two Input Nodes
 1. Sample CSV: runs instantly with templates/financials_example.csv
 2. Live SEC (US): paste tickers and fetch recent fundamentals via the public SEC API
 
