@@ -67,8 +67,8 @@ def parse_uploaded(file) -> pd.DataFrame:
 # ---------------------------
 # UI
 # ---------------------------
-st.set_page_config(page_title="Corporate Health Dashboard", layout="wide")
-st.title("Corporate Health Dashboard")
+st.set_page_config(page_title="Alex's Corporate Health Dashboard", layout="wide")
+st.title("Alex's Corporate Health Dashboard")
 
 st.markdown(
     "Paste **US tickers** or upload a CSV. The app fetches the latest annual fundamentals "
