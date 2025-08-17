@@ -4,7 +4,7 @@
 ![Built with](https://img.shields.io/badge/Stack-Python%20%7C%20Streamlit%20%7C%20Pandas-blue)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey)
 
-A consulting-style tool that converts public company financials into decision-ready health scores and a ranked watchlist. It produces a clean Excel report pack and a CSV you can drop into Power BI. Built to look like something a consultant or PE analyst would actually use.
+ Corporate Health Dashboard is a consulting-style tool that converts public company financials into decision-ready health scores and a ranked watchlist. **Now with live updates—company values and metrics are fetched in real time from the SEC and Yahoo Finance whenever you run the app.** It produces a clean Excel report pack and a CSV you can drop into Power BI. Built to look like something a consultant or PE analyst would actually use.
 
 ---
 
@@ -13,43 +13,50 @@ A consulting-style tool that converts public company financials into decision-re
 - Audience: consulting teams, PE screens, strategy and FP&A
 - Output: a ranked list with profitability, liquidity, leverage and cash generation metrics, plus a peer heatmap
 - Value: fast triage of targets with a transparent scoring model you can tune to a client’s priorities
-- Try it now: click the green Live demo badge above and choose Sample CSV in the sidebar
+Corporate Health Dashboard is a consulting-style app that instantly converts public company financials into decision-ready health scores and a ranked watchlist. **Now with live stock prices and fundamentals fetched in real time from the SEC and Yahoo Finance.**
 
----
+The dashboard produces:
+- A ranked peer table with key metrics and scores
+- A heatmap for visual peer comparison
+- One-click exports: Excel report cards and Power BI-ready CSV
+- All data is fetched live for US tickers, or you can upload your own CSV
 
 
 
-## Features
 
-- CSV upload or live SEC fetch for US tickers
-- Adjustable weights for profitability, liquidity, leverage, cash generation
 - Peer ranking table with a compact metric set
-- Heatmap to spot strengths and weaknesses at a glance
 - One-click exports
   - `company_report_cards.xlsx` for email handoff
   - `metrics_long.csv` ready for Power BI
-
----
-
-## Live demo
-
 - Open the hosted app: **https://alexs-corp-health-dashboard.streamlit.app**
 - In the sidebar pick **Sample CSV** to see results instantly
+### App features
+- **Live stocks:** Real-time SEC fundamentals and Yahoo Finance prices for US tickers
+- **CSV upload:** Analyze your own company data
+- **Adjustable scoring:** Tune weights for profitability, liquidity, leverage, and cash generation
+- **Peer ranking:** Table with all key metrics and composite scores
+- **Heatmap:** Visualize strengths and weaknesses across peers
+- **Exports:**
+    - `company_report_cards.xlsx` for email handoff
+    - `metrics_long.csv` ready for Power BI
+- **Streamlit UI:** Modern, interactive, and cloud-ready
 - Switch to **SEC fetch** to pull recent fundamentals for tickers like `AAPL, MSFT, NVDA`
-
 ---
 
 ## How to run locally
+The app is built for analysts, consultants, and anyone needing a fast, transparent view of corporate health. It:
+- Accepts US tickers (AAPL, MSFT, etc.) or CSV uploads
+- Fetches the latest annual fundamentals and market prices live
+- Computes decision-ready metrics (profitability, liquidity, leverage, cash generation)
+- Scores and ranks companies using a peer-normalized model
+- Visualizes results in a ranking table and heatmap
+- Exports results for further analysis or sharing
 
-```bash
 # clone your fork or local copy
 git clone <YOUR_REPO_URL>
 cd corp-health-dashboard
-
-# create and activate a virtual environment
-python -m venv .venv
+    - Enter tickers or upload a CSV to get live company data and scores
 # macOS or Linux
-source .venv/bin/activate
 # Windows PowerShell
 # .\.venv\Scripts\Activate.ps1
 
@@ -81,65 +88,16 @@ PYTHONPATH="$PWD" streamlit run app/streamlit_app.py
 - Cash generation: Operating cash flow margin, Free cash flow margin
 - Valuation helper: EV to EBITDA for context
 ### Scoring method
-- Z-score metrics across the current peer set
 - Combine into a composite score on a 0 to 100 scale with user-controlled weights
 - For leverage, lower is better, so the model inverts that component
-### Assumptions
-- Latest full fiscal year per company is used when multiple years are available
+    - **Live data pulled from the SEC Company Facts API and Yahoo Finance for common us-gaap concepts and prices**
 - Missing values are handled conservatively and shown for review
-- Educational project. Not investment advice
----
-## Power BI handoff
-
-- The app saves `outputs/metrics_long.csv`.
 - Open Power BI Desktop, import that CSV, and build the one-pager using `dashboards/PowerBI_Readme.md`.
-- Optional artifacts to include in a release:
-  - `dashboards/CorporateHealth.pbix`
-  - `dashboards/CorporateHealth.pdf`
-
----
-
-## What this demonstrates
 
 - Business framing that matches consulting and PE workflows
 - Clean data ingestion, normalization, and transparent scoring
-- Analyst-ready exports and an exec-friendly view
-- Ability to blend data science and finance into a usable product
-
 ---
 
 ## Repo structure
-corp-health-dashboard/
     app/
-        streamlit_app.py
-    src/
-        init.py
-        ingest_sec.py
-        transform.py
-        metrics.py
-        scoring.py
-        export.py
-        viz.py
-    templates/
-        tickers_example.txt
-        financials_example.csv
-    outputs/
-        .gitkeep
-    dashboards/
-        PowerBI_Readme.md
-    tests/
-        test_metrics.py
-        test_scoring.py
-    README.md
-    requirements.txt
-    .gitignore
-
-## License
-
-MIT. See `LICENSE`.
-
----
-
-## Contact
-
 If you want a quick tour or would like me to extend this for a specific sector or screening rule set, open an issue or reach out on LinkedIn.
